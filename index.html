@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>月花 WebAR PoC – MindAR</title>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #000; font-family: -apple-system, 'Helvetica Neue', sans-serif; color: #fff; overflow: hidden; height: 100dvh; }
+    a-scene { position: fixed; inset: 0; width: 100% !important; height: 100% !important; }
+
+    /* HUD */
+    #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; display: flex; flex-direction: column; justify-content: space-between; padding: 20px 20px 36px; }
+    #status-bar { display: flex; align-items: center; gap: 10px; background: rgba(0,0,0,0.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-radius: 12px; padding: 10px 16px; width: fit-content; }
+    #status-dot { width: 10px; height: 10px; border-radius: 50%; background: #888; flex-shrink: 0; transition: background .3s; }
+    #status-dot.searching { background: #f59e0b; animation: pulse 1.2s infinite; }
+    #status-dot.found { background: #22c55e; }
+    #status-dot.lost  { background: #ef4444; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+    #status-text { font-size: 13px; color: rgba(255,255,255,.9); white-space: nowrap; }
+
+    #scan-guide { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-55%); display: flex; flex-direction: column; align-items: center; gap: 16px; transition: opacity .4s; }
+    #scan-guide.hidden { opacity: 0; pointer-events: none; }
+    .scan-frame { width: 200px; height: 200px; position: relative; }
+    .scan-frame::before,.scan-frame::after,.scan-frame span::before,.scan-frame span::after { content:''; position:absolute; width:28px; height:28px; border-color:rgba(255,255,255,.85); border-style:solid; }
+    .scan-frame::before  { top:0;    left:0;  border-width:3px 0 0 3px; border-radius:4px 0 0 0; }
+    .scan-frame::after   { top:0;    right:0; border-width:3px 3px 0 0; border-radius:0 4px 0 0; }
+    .scan-frame span::before { bottom:0; left:0;  border-width:0 0 3px 3px; border-radius:0 0 0 4px; }
+    .scan-frame span::after  { bottom:0; right:0; border-width:0 3px 3px 0; border-radius:0 0 4px 0; }
+    .scan-line { position:absolute; top:0; left:0; right:0; height:2px; background:linear-gradient(90deg,transparent,rgba(251,191,36,.8),transparent); animation:scanline 2s ease-in-out infinite; }
+    @keyframes scanline { 0%{top:0;opacity:0} 10%{opacity:1} 90%{opacity:1} 100%{top:calc(100% - 2px);opacity:0} }
+    #guide-text { font-size:13px; color:rgba(255,255,255,.75); text-align:center; line-height:1.6; text-shadow:0 1px 4px rgba(0,0,0,.6); }
+
+    #info-panel { background:rgba(0,0,0,0.6); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); border-radius:14px; padding:14px 18px; pointer-events:auto; }
+    #info-panel h1 { font-size:11px; font-weight:600; letter-spacing:.06em; color:rgba(255,255,255,.4); text-transform:uppercase; margin-bottom:10px; }
+    .metrics-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:12px; }
+    .metric { background:rgba(255,255,255,.08); border-radius:8px; padding:8px 10px; text-align:center; }
+    .metric .val { font-size:18px; font-weight:700; line-height:1; color:#fff; }
+    .metric .lbl { font-size:10px; color:rgba(255,255,255,.5); margin-top:3px; }
+    .metric.active .val { color:#22c55e; }
+    .metric.warn   .val { color:#f59e0b; }
+    #jitter-bar-wrap { display:flex; align-items:center; gap:10px; }
+    #jitter-label { font-size:11px; color:rgba(255,255,255,.5); white-space:nowrap; }
+    #jitter-bar-bg { flex:1; height:6px; background:rgba(255,255,255,.15); border-radius:3px; overflow:hidden; }
+    #jitter-bar { height:100%; border-radius:3px; background:#22c55e; width:0%; transition:width .15s,background .3s; }
+    #jitter-val { font-size:11px; color:rgba(255,255,255,.6); min-width:40px; text-align:right; }
+
+    /* チューニングパネル */
+    #tune-toggle { position:fixed; bottom:165px; right:20px; width:48px; height:48px; border-radius:50%; background:rgba(245,158,11,.2); border:1.5px solid rgba(245,158,11,.5); color:#f59e0b; font-size:20px; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:15; pointer-events:auto; }
+    #tune-panel { position:fixed; bottom:0; left:0; right:0; background:rgba(15,15,20,0.95); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border-radius:20px 20px 0 0; padding:20px 20px 44px; transform:translateY(100%); transition:transform .35s cubic-bezier(.4,0,.2,1); z-index:20; }
+    #tune-panel.open { transform:translateY(0); }
+    #tune-panel h2 { font-size:14px; font-weight:600; color:rgba(255,255,255,.85); margin-bottom:4px; text-align:center; }
+    #tune-panel .note { font-size:11px; color:rgba(255,255,255,.35); text-align:center; margin-bottom:16px; line-height:1.5; }
+
+    .tune-row { margin-bottom:16px; }
+    .tune-row .tune-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; }
+    .tune-row .tune-name { font-size:12px; color:rgba(255,255,255,.7); font-family:'SF Mono','Fira Code',monospace; }
+    .tune-row .tune-desc { font-size:10px; color:rgba(255,255,255,.35); }
+    .tune-row .tune-val-row { display:flex; align-items:center; gap:10px; }
+    .tune-row input[type=range] { flex:1; accent-color:#f59e0b; height:4px; }
+    .tune-row .tv { font-size:13px; font-weight:600; color:#f59e0b; min-width:52px; text-align:right; font-family:'SF Mono','Fira Code',monospace; }
+
+    /* 再起動ラベル（filterMinCF/Beta のみ） */
+    .restart-badge { display:inline-block; font-size:10px; color:#f59e0b; background:rgba(245,158,11,.15); border:1px solid rgba(245,158,11,.3); border-radius:6px; padding:1px 6px; margin-left:6px; }
+    .lerp-badge { display:inline-block; font-size:10px; color:#22c55e; background:rgba(34,197,94,.12); border:1px solid rgba(34,197,94,.3); border-radius:6px; padding:1px 6px; margin-left:6px; }
+
+    #tune-close { display:block; width:100%; padding:12px; margin-top:8px; background:rgba(255,255,255,.07); border:none; border-radius:10px; color:rgba(255,255,255,.6); font-size:14px; cursor:pointer; }
+
+    /* 再起動オーバーレイ */
+    #restart-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.82); z-index:30; display:none; flex-direction:column; align-items:center; justify-content:center; gap:16px; }
+    #restart-overlay.show { display:flex; }
+    #restart-overlay p { font-size:14px; color:rgba(255,255,255,.7); }
+    .spinner { width:36px; height:36px; border:3px solid rgba(255,255,255,.15); border-top-color:#f59e0b; border-radius:50%; animation:spin .7s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    #restart-params { font-size:11px; font-family:'SF Mono','Fira Code',monospace; color:#f59e0b; background:rgba(245,158,11,.1); border-radius:8px; padding:8px 16px; }
+
+    /* ファイルオーバーレイ */
+    #file-overlay { position:fixed; inset:0; background:#0a0a0f; z-index:50; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:32px; gap:20px; }
+    #file-overlay.hidden { display:none; }
+    #file-overlay h2 { font-size:20px; font-weight:700; text-align:center; line-height:1.5; }
+    .step-badge { background:rgba(245,158,11,.15); border:1px solid rgba(245,158,11,.35); border-radius:20px; padding:3px 12px; font-size:11px; color:#f59e0b; font-weight:600; letter-spacing:.06em; }
+    .step-block { width:100%; max-width:340px; }
+    .step-block p { font-size:13px; color:rgba(255,255,255,.6); line-height:1.7; margin:8px 0 10px; }
+    .step-block a { color:#f59e0b; }
+    .compile-btn { display:block; width:100%; padding:13px; background:rgba(245,158,11,.12); border:1px solid rgba(245,158,11,.4); border-radius:12px; color:#f59e0b; font-size:14px; font-weight:600; text-align:center; text-decoration:none; }
+    .divider { width:100%; max-width:340px; border:none; border-top:1px solid rgba(255,255,255,.1); margin:4px 0; }
+    .file-drop { width:100%; max-width:340px; border:1.5px dashed rgba(245,158,11,.45); border-radius:14px; padding:24px 20px; text-align:center; cursor:pointer; position:relative; transition:background .2s; }
+    .file-drop:hover,.file-drop.over { background:rgba(245,158,11,.07); }
+    .file-drop input { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%; }
+    .file-drop .icon { font-size:30px; margin-bottom:8px; }
+    .file-drop .dt { font-size:13px; color:rgba(255,255,255,.75); }
+    .file-drop .ds { font-size:11px; color:rgba(255,255,255,.4); margin-top:4px; }
+    #file-status { font-size:12px; min-height:18px; }
+    #start-btn { width:100%; max-width:340px; padding:14px; background:#f59e0b; border:none; border-radius:12px; color:#000; font-size:15px; font-weight:700; cursor:pointer; opacity:.4; pointer-events:none; transition:opacity .2s; }
+    #start-btn.ready { opacity:1; pointer-events:auto; }
+    #start-btn:active { filter:brightness(.9); }
+  </style>
+</head>
+<body>
+
+<!-- ── 起動オーバーレイ ── -->
+<div id="file-overlay">
+  <h2>月花 WebAR PoC<br><span style="color:#f59e0b;">MindAR 版</span></h2>
+  <p style="font-size:14px;color:rgba(255,255,255,.6);text-align:center;line-height:1.7;max-width:280px;">
+    ボタンをタップしてカメラを起動してください
+  </p>
+  <button id="start-btn" onclick="startAR()" style="width:240px;padding:14px;background:#f59e0b;border:none;border-radius:12px;color:#000;font-size:16px;font-weight:700;cursor:pointer;margin-top:8px;">
+    AR を開始する
+  </button>
+</div>
+
+<!-- AR コンテナ -->
+<div id="ar-container" style="display:none; position:fixed; inset:0;"></div>
+
+<!-- HUD -->
+<div id="hud" style="display:none;">
+  <div id="status-bar">
+    <div id="status-dot" class="searching"></div>
+    <span id="status-text">缶の蓋をカメラに向けてください</span>
+  </div>
+  <div id="scan-guide">
+    <div class="scan-frame"><span></span><div class="scan-line"></div></div>
+    <div id="guide-text">缶の蓋を枠内に<br>おさめてください</div>
+  </div>
+  <div>
+    <div id="info-panel">
+      <h1>PoC 精度メトリクス — MindAR</h1>
+      <div class="metrics-grid">
+        <div class="metric" id="m-detect"><div class="val" id="v-detect">—</div><div class="lbl">検出回数</div></div>
+        <div class="metric" id="m-lost"><div class="val" id="v-lost">0</div><div class="lbl">ロスト回数</div></div>
+        <div class="metric" id="m-time"><div class="val" id="v-time">—</div><div class="lbl">追従時間(s)</div></div>
+      </div>
+      <div id="jitter-bar-wrap">
+        <span id="jitter-label">ジッター強度</span>
+        <div id="jitter-bar-bg"><div id="jitter-bar"></div></div>
+        <span id="jitter-val">0.000</span>
+      </div>
+    </div>
+    <div id="tune-toggle" onclick="toggleTune()">⚙</div>
+  </div>
+</div>
+
+<!-- チューニングパネル -->
+<div id="tune-panel">
+  <h2>パラメーター調整</h2>
+  <p class="note">
+    <span style="color:#22c55e;">■</span> リアルタイム反映 &nbsp;／&nbsp;
+    <span style="color:#f59e0b;">■</span> 離したら自動再起動（1〜2秒）
+  </p>
+
+  <div class="tune-row">
+    <div class="tune-head">
+      <span class="tune-name">filterMinCF <span class="restart-badge">再起動</span></span>
+      <span class="tune-desc">小さい → 遠距離・斜め角度でロストしにくい</span>
+    </div>
+    <div class="tune-val-row">
+      <input type="range" id="r-mincf" min="0.0001" max="0.01" step="0.0001" value="0.001"
+        oninput="document.getElementById('tv-mincf').textContent=parseFloat(this.value).toFixed(4)"
+        onchange="scheduleRestart()">
+      <span class="tv" id="tv-mincf">0.0010</span>
+    </div>
+  </div>
+
+  <div class="tune-row">
+    <div class="tune-head">
+      <span class="tune-name">filterBeta <span class="restart-badge">再起動</span></span>
+      <span class="tune-desc">小さい → ジッターが減る（反応は遅くなる）</span>
+    </div>
+    <div class="tune-val-row">
+      <input type="range" id="r-beta" min="0.001" max="0.1" step="0.001" value="0.01"
+        oninput="document.getElementById('tv-beta').textContent=parseFloat(this.value).toFixed(3)"
+        onchange="scheduleRestart()">
+      <span class="tv" id="tv-beta">0.010</span>
+    </div>
+  </div>
+
+  <div class="tune-row">
+    <div class="tune-head">
+      <span class="tune-name">lerp 補間係数 <span class="lerp-badge">リアルタイム</span></span>
+      <span class="tune-desc">小さい → なめらか（追従が遅れる）</span>
+    </div>
+    <div class="tune-val-row">
+      <input type="range" id="r-lerp" min="0.05" max="1.0" step="0.05" value="0.3"
+        oninput="lerpFactor=+this.value; document.getElementById('tv-lerp').textContent=parseFloat(this.value).toFixed(2)">
+      <span class="tv" id="tv-lerp">0.30</span>
+    </div>
+  </div>
+
+  <button id="tune-close" onclick="toggleTune()">閉じる</button>
+</div>
+
+<!-- 再起動オーバーレイ -->
+<div id="restart-overlay">
+  <div class="spinner"></div>
+  <p>パラメーターを適用して再起動中…</p>
+  <div id="restart-params"></div>
+</div>
+
+<script>
+// ── 状態 ──
+let mindB64 = null;
+let lerpFactor = 0.3;
+let detectCount = 0, lostCount = 0;
+let trackStart = null, prevPos = null;
+let jitterSamples = [];
+let restartTimer = null;
+
+// ── ファイル読み込み ──
+function loadMindFile(file) {
+  // iPhoneのSafariはaccept=".mind"を無視するので拡張子チェックをゆるくする
+  if (!file) {
+    showFileStatus('⚠ ファイルが読み込めませんでした', '#ef4444');
+    return;
+  }
+  // Safari / iCloud Drive 経由だとファイル名が変わることがあるので
+  // 拡張子チェックは警告のみ（処理は続ける）
+  if (!file.name.endsWith('.mind') && !file.name.includes('mind')) {
+    showFileStatus('⚠ targets.mind を選択してください', '#ef4444');
+    return;
+  }
+  showFileStatus('読み込み中…', '#f59e0b');
+  const reader = new FileReader();
+  reader.onload = e => {
+    // readAsDataURL はSafariでも確実に動く
+    // data:...;base64,XXXX の形式でそのまま imageTargetSrc に渡せる
+    mindB64 = e.target.result;
+    showFileStatus(`✓ ${file.name}（${(file.size/1024).toFixed(0)} KB）`, '#22c55e');
+    document.getElementById('start-btn').classList.add('ready');
+  };
+  reader.onerror = () => {
+    showFileStatus('⚠ ファイルの読み込みに失敗しました', '#ef4444');
+  };
+  reader.readAsDataURL(file);
+}
+function showFileStatus(msg, color) {
+  const el = document.getElementById('file-status');
+  el.textContent = msg;
+  el.style.color = color;
+}
+
+
+
+
+// ── AR 起動 ──
+function startAR() {
+  document.getElementById('file-overlay').classList.add('hidden');
+  document.getElementById('ar-container').style.display = 'block';
+  document.getElementById('hud').style.display = 'flex';
+  buildScene();
+}
+
+// ── スライダーを離したら自動再起動（300ms デバウンス） ──
+function scheduleRestart() {
+  clearTimeout(restartTimer);
+  restartTimer = setTimeout(() => {
+    const mincf = parseFloat(document.getElementById('r-mincf').value).toFixed(4);
+    const beta  = parseFloat(document.getElementById('r-beta').value).toFixed(3);
+    document.getElementById('restart-params').textContent =
+      `filterMinCF: ${mincf}  /  filterBeta: ${beta}`;
+    document.getElementById('restart-overlay').classList.add('show');
+    // シーンを破棄してから再生成
+    document.getElementById('ar-container').innerHTML = '';
+    detectCount = 0; lostCount = 0; trackStart = null; prevPos = null; jitterSamples = [];
+    document.getElementById('v-detect').textContent = '—';
+    document.getElementById('v-lost').textContent = '0';
+    document.getElementById('v-time').textContent = '—';
+    document.getElementById('m-detect').classList.remove('active');
+    document.getElementById('m-lost').classList.remove('warn');
+    document.getElementById('m-time').classList.remove('active');
+    setJitter(0);
+    setStatus('searching', '缶の蓋をカメラに向けてください');
+    document.getElementById('scan-guide').classList.remove('hidden');
+    // 少し待ってから再生成（DOMクリアを確実に）
+    setTimeout(() => {
+      buildScene();
+      document.getElementById('restart-overlay').classList.remove('show');
+    }, 800);
+  }, 300);
+}
+
+// ── シーン構築 ──
+function buildScene() {
+  console.log('buildScene 開始');
+  const minCF = parseFloat(document.getElementById('r-mincf').value);
+  const beta  = parseFloat(document.getElementById('r-beta').value);
+  lerpFactor  = parseFloat(document.getElementById('r-lerp').value);
+
+  console.log('filterMinCF=' + minCF + ' filterBeta=' + beta + ' lerp=' + lerpFactor);
+  console.log('mindB64 length=' + (mindB64 ? mindB64.length : 'null'));
+  const container = document.getElementById('ar-container');
+  container.innerHTML = `
+    <a-scene
+      mindar-image="imageTargetSrc: targets.mind; filterMinCF: ${minCF}; filterBeta: ${beta}; maxTrack: 1;"
+      color-space="sRGB"
+      renderer="colorManagement: true; antialias: true;"
+      vr-mode-ui="enabled: false"
+      device-orientation-permission-ui="enabled: false"
+      embedded>
+      <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+      <a-entity mindar-image-target="targetIndex: 0" id="ar-target">
+        <a-box id="ar-cube"
+          position="0 0 0.04" width="0.08" height="0.08" depth="0.08"
+          color="#2563AA" opacity="0.92" roughness="0.3" metalness="0.1">
+        </a-box>
+        <!-- 軸インジケーター（回転確認用） -->
+        <a-entity geometry="primitive:cylinder;radius:0.003;height:0.06;"
+          material="color:#ef4444;" position="0.03 0 0.04" rotation="0 0 90"></a-entity>
+        <a-entity geometry="primitive:cylinder;radius:0.003;height:0.06;"
+          material="color:#22c55e;" position="0 0.03 0.04"></a-entity>
+        <!-- マーカー平面（デバッグ用） -->
+        <a-plane position="0 0 0.001" width="0.16" height="0.16"
+          color="#f59e0b" opacity="0.12" rotation="-90 0 0" side="double"></a-plane>
+      </a-entity>
+      <a-light type="ambient" color="#fff" intensity="0.7"></a-light>
+      <a-light type="directional" color="#fff" intensity="0.8" position="1 2 1"></a-light>
+    </a-scene>`;
+
+  const sceneEl = container.querySelector('a-scene');
+  sceneEl.addEventListener('loaded', () => {
+    console.log('a-scene loaded イベント発火');
+    const target = sceneEl.querySelector('[mindar-image-target]');
+
+    console.log('targetFound/Lost リスナー登録完了');
+    target.addEventListener('targetFound', () => {
+      console.log('targetFound!');
+      detectCount++;
+      trackStart = performance.now();
+      prevPos = null; jitterSamples = [];
+      setStatus('found', 'マーカー認識中 ✓');
+      document.getElementById('scan-guide').classList.add('hidden');
+      setMetric('v-detect', detectCount, 'm-detect', 'active');
+    });
+
+    target.addEventListener('targetLost', () => {
+      console.log('targetLost');
+      lostCount++;
+      trackStart = null;
+      setStatus('lost', 'マーカーを見失いました');
+      document.getElementById('scan-guide').classList.remove('hidden');
+      setMetric('v-lost', lostCount, 'm-lost', 'warn');
+      setJitter(0);
+    });
+
+    // lerp ループ
+    const sp = new THREE.Vector3();
+    const sq = new THREE.Quaternion();
+    let init = false;
+    (function loop() {
+      requestAnimationFrame(loop);
+      if (!target.object3D.visible) return;
+      const obj = target.object3D;
+      if (!init) { sp.copy(obj.position); sq.copy(obj.quaternion); init = true; return; }
+
+      // ジッター計測（lerp前）
+      if (prevPos) {
+        const dx = obj.position.x - prevPos.x;
+        const dy = obj.position.y - prevPos.y;
+        const dz = obj.position.z - prevPos.z;
+        const j = Math.sqrt(dx*dx + dy*dy + dz*dz);
+        jitterSamples.push(j);
+        if (jitterSamples.length > 30) jitterSamples.shift();
+        setJitter(jitterSamples.reduce((a,b)=>a+b,0)/jitterSamples.length);
+      }
+      prevPos = obj.position.clone();
+
+      // lerp はスライダーのリアルタイム値を使う
+      const lf = parseFloat(document.getElementById('r-lerp').value);
+      sp.lerp(obj.position, lf);
+      sq.slerp(obj.quaternion, lf);
+      obj.position.copy(sp);
+      obj.quaternion.copy(sq);
+
+      if (trackStart) {
+        document.getElementById('v-time').textContent = ((performance.now()-trackStart)/1000).toFixed(1);
+        document.getElementById('m-time').classList.add('active');
+      }
+    })();
+  });
+}
+
+// ── UI ヘルパー ──
+function setStatus(cls, text) {
+  document.getElementById('status-dot').className = cls;
+  document.getElementById('status-text').textContent = text;
+}
+function setMetric(valId, val, cardId, cls) {
+  document.getElementById(valId).textContent = val;
+  document.getElementById(cardId).classList.add(cls);
+}
+function setJitter(v) {
+  const pct = Math.min(v * 5000, 100);
+  const bar = document.getElementById('jitter-bar');
+  bar.style.width = pct + '%';
+  bar.style.background = pct < 30 ? '#22c55e' : pct < 65 ? '#f59e0b' : '#ef4444';
+  document.getElementById('jitter-val').textContent = v.toFixed(4);
+}
+function toggleTune() {
+  document.getElementById('tune-panel').classList.toggle('open');
+}
+</script>
+
+<style>
+#debug-panel {
+  position: fixed; top: 0; left: 0; right: 0;
+  background: rgba(0,0,0,0.92);
+  color: #22c55e;
+  font-family: 'SF Mono', monospace;
+  font-size: 12px;
+  padding: 12px 16px;
+  z-index: 9999;
+  max-height: 50vh;
+  overflow-y: auto;
+  display: none;
+}
+#debug-panel.show { display: block; }
+#debug-toggle {
+  position: fixed; top: 8px; right: 8px;
+  background: rgba(239,68,68,0.8);
+  color: #fff; font-size: 11px; font-weight: 700;
+  border: none; border-radius: 6px;
+  padding: 4px 10px; z-index: 10000; cursor: pointer;
+}
+.dlog { margin: 2px 0; }
+.dlog.err { color: #ef4444; }
+.dlog.warn { color: #f59e0b; }
+.dlog.info { color: #22c55e; }
+</style>
+
+<button id="debug-toggle" onclick="document.getElementById('debug-panel').classList.toggle('show')">DEBUG</button>
+<div id="debug-panel"><div class="dlog info">--- デバッグログ ---</div></div>
+
+<script>
+(function(){
+  const panel = document.getElementById('debug-panel');
+
+  function dlog(msg, type='info') {
+    const d = document.createElement('div');
+    d.className = 'dlog ' + type;
+    d.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+    panel.appendChild(d);
+    panel.scrollTop = panel.scrollHeight;
+    panel.classList.add('show');
+  }
+
+  // console をキャプチャ
+  ['log','warn','error','info'].forEach(fn => {
+    const orig = console[fn].bind(console);
+    console[fn] = function(...args) {
+      orig(...args);
+      const type = fn === 'error' ? 'err' : fn === 'warn' ? 'warn' : 'info';
+      dlog(args.map(a => {
+        try { return typeof a === 'object' ? JSON.stringify(a) : String(a); }
+        catch(e) { return String(a); }
+      }).join(' '), type);
+    };
+  });
+
+  // グローバルエラーキャプチャ
+  window.addEventListener('error', e => {
+    dlog('ERROR: ' + e.message + ' (' + e.filename + ':' + e.lineno + ')', 'err');
+  });
+  window.addEventListener('unhandledrejection', e => {
+    dlog('PROMISE ERROR: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason)), 'err');
+  });
+
+  // カメラアクセス確認
+  dlog('ページ読み込み開始');
+  dlog('UserAgent: ' + navigator.userAgent.substring(0, 80));
+  dlog('Protocol: ' + location.protocol);
+
+  if (location.protocol !== 'https:') {
+    dlog('⚠ HTTPS ではありません（カメラが使えない）', 'err');
+  }
+
+  navigator.mediaDevices.getUserMedia({ video: true })
+    .then(stream => {
+      dlog('✓ カメラアクセス: 成功');
+      stream.getTracks().forEach(t => t.stop());
+    })
+    .catch(err => {
+      dlog('✗ カメラアクセス失敗: ' + err.name + ' / ' + err.message, 'err');
+    });
+})();
+</script>
+
+</body>
+</html>
