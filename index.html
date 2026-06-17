@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>月花 WebAR PoC – MindAR</title>
-  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #000; font-family: -apple-system, 'Helvetica Neue', sans-serif; color: #fff; overflow: hidden; height: 100dvh; }
@@ -320,6 +320,10 @@ function buildScene() {
   sceneEl.addEventListener('loaded', () => {
     console.log('a-scene loaded イベント発火');
     const target = sceneEl.querySelector('[mindar-image-target]');
+    console.log('target element: ' + (target ? 'found' : 'NOT FOUND'));
+    // MindAR システムの初期化を監視
+    sceneEl.addEventListener('arReady', () => console.log('arReady イベント発火'));
+    sceneEl.addEventListener('arError', (e) => console.log('arError: ' + JSON.stringify(e.detail), 'err'));
 
     console.log('targetFound/Lost リスナー登録完了');
     target.addEventListener('targetFound', () => {
