@@ -118,15 +118,15 @@
 
   <a-entity mindar-image-target="targetIndex: 0" id="ar-target">
     <a-box id="ar-cube"
-      position="0 0 0.04" width="0.08" height="0.08" depth="0.08"
+      position="0 0 0.08" width="0.16" height="0.16" depth="0.16"
       color="#2563AA" opacity="0.92" roughness="0.3" metalness="0.1">
     </a-box>
     <a-entity geometry="primitive:cylinder;radius:0.003;height:0.06;"
-      material="color:#ef4444;" position="0.03 0 0.04" rotation="0 0 90"></a-entity>
+      material="color:#ef4444;" position="0.08 0 0.08" rotation="0 0 90"></a-entity>
     <a-entity geometry="primitive:cylinder;radius:0.003;height:0.06;"
-      material="color:#22c55e;" position="0 0.03 0.04"></a-entity>
+      material="color:#22c55e;" position="0 0.08 0.08"></a-entity>
     <a-plane position="0 0 0.001" width="0.16" height="0.16"
-      color="#f59e0b" opacity="0.12" rotation="-90 0 0" side="double"></a-plane>
+      color="#f59e0b" opacity="0.10" rotation="-90 0 0" side="double"></a-plane>
   </a-entity>
 
   <a-light type="ambient" color="#fff" intensity="0.7"></a-light>
@@ -173,12 +173,19 @@
   <h2>パラメーター調整</h2>
   <p class="note">
     <span style="color:#22c55e;">■</span> リアルタイム反映 &nbsp;／&nbsp;
-    <span style="color:#f59e0b;">■</span> 離したら自動再起動
+    <span style="color:#f59e0b;">■</span> 離したら自動再起動（1〜2秒）
   </p>
+  <div style="background:rgba(255,255,255,.05);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:rgba(255,255,255,.5);line-height:1.8;">
+    <b style="color:rgba(255,255,255,.7);">調整のコツ</b><br>
+    ロスト回数が多い → filterMinCF を小さくする<br>
+    ジッターが強い　→ filterBeta を小さくする<br>
+    両方気になる　　→ まず filterBeta から下げる<br>
+    追従が遅れる　　→ lerp を大きくする（0.5〜1.0）
+  </div>
   <div class="tune-row">
     <div class="tune-head">
       <span class="tune-name">filterMinCF <span class="restart-badge">再起動</span></span>
-      <span class="tune-desc">小 → 遠距離・斜めでロストしにくい</span>
+      <span class="tune-desc">小さい → ロストしにくい・今: ロスト多発中</span>
     </div>
     <div class="tune-val-row">
       <input type="range" id="r-mincf" min="0.0001" max="0.01" step="0.0001" value="0.001"
@@ -234,7 +241,7 @@ function dlog(msg, type) {
   d.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
   panel.appendChild(d);
   panel.scrollTop = panel.scrollHeight;
-  panel.classList.add('show');
+  // panel.classList.add('show');  // デフォルト非表示
 }
 ['log','warn','error'].forEach(function(fn) {
   var orig = console[fn].bind(console);
