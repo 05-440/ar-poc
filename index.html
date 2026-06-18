@@ -107,11 +107,12 @@
 
 <!-- ── A-Frame シーン（静的に記述） ── -->
 <a-scene
-  mindar-image="imageTargetSrc: targets.mind; filterMinCF: 0.001; filterBeta: 0.01; maxTrack: 1;"
+  mindar-image="imageTargetSrc: targets.mind; filterMinCF: 0.001; filterBeta: 0.01; maxTrack: 1; warmupTolerance: 5; missTolerance: 10;"
   color-space="sRGB"
   renderer="colorManagement: true; antialias: true;"
   vr-mode-ui="enabled: false"
-  device-orientation-permission-ui="enabled: false">
+  device-orientation-permission-ui="enabled: false"
+  loading-screen="enabled: false">
 
   <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
@@ -131,6 +132,13 @@
   <a-light type="ambient" color="#fff" intensity="0.7"></a-light>
   <a-light type="directional" color="#fff" intensity="0.8" position="1 2 1"></a-light>
 </a-scene>
+
+
+<!-- ローディングオーバーレイ -->
+<div id="loading-overlay" style="position:fixed;inset:0;background:#000;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;">
+  <div style="width:40px;height:40px;border:3px solid rgba(255,255,255,.2);border-top-color:#f59e0b;border-radius:50%;animation:spin .7s linear infinite;"></div>
+  <p id="loading-msg" style="font-family:sans-serif;font-size:14px;color:rgba(255,255,255,.7);">targets.mind を読み込み中…</p>
+</div>
 
 <!-- HUD -->
 <div id="hud">
@@ -263,11 +271,19 @@ var restartTimer = null;
 // ── A-Frame / MindAR イベント ──
 document.addEventListener('DOMContentLoaded', function() {
   dlog('DOMContentLoaded');
+  var loadingMsg = document.getElementById('loading-msg');
+  if (loadingMsg) {
+    setTimeout(function(){ if(loadingMsg) loadingMsg.textContent = 'カメラを初期化中…'; }, 2000);
+    setTimeout(function(){ if(loadingMsg) loadingMsg.textContent = 'マーカーデータを処理中…'; }, 4000);
+    setTimeout(function(){ if(loadingMsg) loadingMsg.textContent = 'もう少しお待ちください…'; }, 7000);
+  }
   var sceneEl = document.querySelector('a-scene');
   if (!sceneEl) { dlog('a-scene が見つかりません', 'err'); return; }
 
   sceneEl.addEventListener('loaded', function() {
     dlog('a-scene loaded');
+    var lo = document.getElementById('loading-overlay');
+    if (lo) lo.style.display = 'none';
     setStatus('searching', '缶の蓋をカメラに向けてください');
     var target = document.getElementById('ar-target');
     if (!target) { dlog('ar-target が見つかりません', 'err'); return; }
