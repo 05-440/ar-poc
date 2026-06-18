@@ -1,108 +1,400 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta charset="utf-8">
-  <title>SABA AR - umios</title>
-
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>月花 WebAR PoC – MindAR</title>
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-  <script src="https://cdn.jsdelivr.net/gh/donmccurdy/aframe-extras@v6.1.1/dist/aframe-extras.min.js"></script>
-
-  <link rel="stylesheet" type="text/css" href="./jscss/ar.css">
-
   <style>
-    #tapOverlay {
-      position: fixed;
-      top: 0; left: 0;
-      width: 100vw; height: 100vh;
-      z-index: 5;
-      display: none;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #000; font-family: -apple-system, sans-serif; color: #fff; overflow: hidden; height: 100dvh; }
+
+    /* HUD */
+    #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10;
+           display: flex; flex-direction: column; justify-content: space-between; padding: 20px 20px 36px; }
+    #status-bar { display: flex; align-items: center; gap: 10px;
+                  background: rgba(0,0,0,0.55); backdrop-filter: blur(8px);
+                  border-radius: 12px; padding: 10px 16px; width: fit-content; }
+    #status-dot { width:10px; height:10px; border-radius:50%; background:#888; flex-shrink:0; transition:background .3s; }
+    #status-dot.searching { background:#f59e0b; animation:pulse 1.2s infinite; }
+    #status-dot.found { background:#22c55e; }
+    #status-dot.lost  { background:#ef4444; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+    #status-text { font-size:13px; color:rgba(255,255,255,.9); }
+
+    #scan-guide { position:absolute; top:50%; left:50%; transform:translate(-50%,-55%);
+                  display:flex; flex-direction:column; align-items:center; gap:16px; transition:opacity .4s; }
+    #scan-guide.hidden { opacity:0; pointer-events:none; }
+    .scan-frame { width:200px; height:200px; position:relative; }
+    .scan-frame::before,.scan-frame::after,.scan-frame span::before,.scan-frame span::after
+      { content:''; position:absolute; width:28px; height:28px; border-color:rgba(255,255,255,.85); border-style:solid; }
+    .scan-frame::before  { top:0;    left:0;  border-width:3px 0 0 3px; border-radius:4px 0 0 0; }
+    .scan-frame::after   { top:0;    right:0; border-width:3px 3px 0 0; border-radius:0 4px 0 0; }
+    .scan-frame span::before { bottom:0; left:0;  border-width:0 0 3px 3px; border-radius:0 0 0 4px; }
+    .scan-frame span::after  { bottom:0; right:0; border-width:0 3px 3px 0; border-radius:0 0 4px 0; }
+    .scan-line { position:absolute; top:0; left:0; right:0; height:2px;
+                 background:linear-gradient(90deg,transparent,rgba(251,191,36,.8),transparent);
+                 animation:scanline 2s ease-in-out infinite; }
+    @keyframes scanline { 0%{top:0;opacity:0} 10%{opacity:1} 90%{opacity:1} 100%{top:calc(100% - 2px);opacity:0} }
+    #guide-text { font-size:13px; color:rgba(255,255,255,.75); text-align:center; line-height:1.6; }
+
+    #info-panel { background:rgba(0,0,0,0.6); backdrop-filter:blur(8px);
+                  border-radius:14px; padding:14px 18px; pointer-events:auto; }
+    #info-panel h1 { font-size:11px; font-weight:600; letter-spacing:.06em;
+                     color:rgba(255,255,255,.4); text-transform:uppercase; margin-bottom:10px; }
+    .metrics-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:12px; }
+    .metric { background:rgba(255,255,255,.08); border-radius:8px; padding:8px 10px; text-align:center; }
+    .metric .val { font-size:18px; font-weight:700; line-height:1; color:#fff; }
+    .metric .lbl { font-size:10px; color:rgba(255,255,255,.5); margin-top:3px; }
+    .metric.active .val { color:#22c55e; }
+    .metric.warn   .val { color:#f59e0b; }
+    #jitter-bar-wrap { display:flex; align-items:center; gap:10px; }
+    #jitter-label { font-size:11px; color:rgba(255,255,255,.5); white-space:nowrap; }
+    #jitter-bar-bg { flex:1; height:6px; background:rgba(255,255,255,.15); border-radius:3px; overflow:hidden; }
+    #jitter-bar { height:100%; border-radius:3px; background:#22c55e; width:0%; transition:width .15s,background .3s; }
+    #jitter-val { font-size:11px; color:rgba(255,255,255,.6); min-width:40px; text-align:right; }
+
+    #tune-toggle { position:fixed; bottom:165px; right:20px; width:48px; height:48px; border-radius:50%;
+                   background:rgba(245,158,11,.2); border:1.5px solid rgba(245,158,11,.5);
+                   color:#f59e0b; font-size:20px; display:flex; align-items:center; justify-content:center;
+                   cursor:pointer; z-index:15; pointer-events:auto; }
+    #tune-panel { position:fixed; bottom:0; left:0; right:0; background:rgba(15,15,20,0.95);
+                  backdrop-filter:blur(16px); border-radius:20px 20px 0 0; padding:20px 20px 44px;
+                  transform:translateY(100%); transition:transform .35s cubic-bezier(.4,0,.2,1); z-index:20; }
+    #tune-panel.open { transform:translateY(0); }
+    #tune-panel h2 { font-size:14px; font-weight:600; color:rgba(255,255,255,.85); margin-bottom:4px; text-align:center; }
+    #tune-panel .note { font-size:11px; color:rgba(255,255,255,.35); text-align:center; margin-bottom:16px; line-height:1.5; }
+    .tune-row { margin-bottom:16px; }
+    .tune-row .tune-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; }
+    .tune-row .tune-name { font-size:12px; color:rgba(255,255,255,.7); font-family:monospace; }
+    .tune-row .tune-desc { font-size:10px; color:rgba(255,255,255,.35); }
+    .tune-row .tune-val-row { display:flex; align-items:center; gap:10px; }
+    .tune-row input[type=range] { flex:1; accent-color:#f59e0b; }
+    .tune-row .tv { font-size:13px; font-weight:600; color:#f59e0b; min-width:52px; text-align:right; font-family:monospace; }
+    .restart-badge { font-size:10px; color:#f59e0b; background:rgba(245,158,11,.15);
+                     border:1px solid rgba(245,158,11,.3); border-radius:6px; padding:1px 6px; margin-left:6px; }
+    .lerp-badge { font-size:10px; color:#22c55e; background:rgba(34,197,94,.12);
+                  border:1px solid rgba(34,197,94,.3); border-radius:6px; padding:1px 6px; margin-left:6px; }
+    #tune-close { display:block; width:100%; padding:12px; margin-top:8px;
+                  background:rgba(255,255,255,.07); border:none; border-radius:10px;
+                  color:rgba(255,255,255,.6); font-size:14px; cursor:pointer; }
+
+    #restart-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.82); z-index:30;
+                       display:none; flex-direction:column; align-items:center; justify-content:center; gap:16px; }
+    #restart-overlay.show { display:flex; }
+    #restart-overlay p { font-size:14px; color:rgba(255,255,255,.7); }
+    .spinner { width:36px; height:36px; border:3px solid rgba(255,255,255,.15);
+               border-top-color:#f59e0b; border-radius:50%; animation:spin .7s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    #restart-params { font-size:11px; font-family:monospace; color:#f59e0b;
+                      background:rgba(245,158,11,.1); border-radius:8px; padding:8px 16px; }
+
+    /* デバッグ */
+    #debug-panel { position:fixed; top:0; left:0; right:0; background:rgba(0,0,0,0.92);
+                   color:#22c55e; font-family:monospace; font-size:12px; padding:12px 16px;
+                   z-index:9999; max-height:50vh; overflow-y:auto; display:none; }
+    #debug-panel.show { display:block; }
+    #debug-toggle { position:fixed; top:8px; right:8px; background:rgba(239,68,68,0.8);
+                    color:#fff; font-size:11px; font-weight:700; border:none; border-radius:6px;
+                    padding:4px 10px; z-index:10000; cursor:pointer; }
+    .dlog { margin:2px 0; }
+    .dlog.err  { color:#ef4444; }
+    .dlog.warn { color:#f59e0b; }
+    .dlog.info { color:#22c55e; }
   </style>
 </head>
-
 <body>
 
+<!-- ── A-Frame シーン（静的に記述） ── -->
 <a-scene
-  mindar-image="imageTargetSrc: assets/targets.mind; autoStart: true; uiLoading: yes; uiError: yes; uiScanning: yes; filterMinCF: 0.007; filterBeta: 0.010; maxTrack: 1;"
+  mindar-image="imageTargetSrc: targets.mind; autoStart: true; uiLoading: yes; uiError: yes; uiScanning: yes; filterMinCF: 0.001; filterBeta: 0.01; maxTrack: 1;"
   color-space="sRGB"
   renderer="colorManagement: true; physicallyCorrectLights: true;"
   vr-mode-ui="enabled: false"
-  device-orientation-permission-ui="enabled: false"
-  id="scene"
->
+  device-orientation-permission-ui="enabled: false">
 
-  <a-assets>
-    <a-asset-item id="sabaModel0" src="assets/sabaAnime_Illustration0216.glb"></a-asset-item>
-    <a-asset-item id="sabaModel1" src="assets/sabaAnime_natural0212.glb"></a-asset-item>
-    <a-asset-item id="kanModel"     src="assets/kan.obj"></a-asset-item>
-    <a-asset-item id="kanMaskModel" src="assets/kanOuter.obj"></a-asset-item>
-    <img id="emvmapImg"   src="assets/emvmap.jpg" />
-    <img id="tapImg"      src="assets/tapIcon.png" />
-    <img id="restartImg"  src="assets/restart.png" />
-    <img id="kanAOImg"    src="assets/kanAO.jpg" />
-    <img id="kanOuterImg" src="assets/kanB.jpg" />
-    <img id="targertImg"  src="assets/targetImage.png" />
-  </a-assets>
+  <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-  <a-camera position="0 0 0" look-controls="enabled: false">
-    <a-plane id="beforeTrack" position="0 -0.03 -0.2" scale="0.12 0.12 0.12"
-      material="src:#targertImg;opacity:0.5;">
-    </a-plane>
-  </a-camera>
-
-  <a-light type="ambient" intensity="1"></a-light>
-  <a-entity light="type:directional;intensity:1.5;" position="0 1 0"></a-entity>
-
-  <!-- 蓋マーカー（targetIndex: 0 のみ） -->
-  <a-entity id="imageTarget0" mindar-image-target="targetIndex: 0">
-    <a-entity id="allscale0" scale="1.5 1.5 1.5" position="0 0 0.5" rotation="90 0 0">
-
-      <a-entity id="kanMask0">
-        <a-entity obj-model="obj:#kanMaskModel" rotation="0 -17 0"
-          material="opacity:0;roughness:0.9;metalness:1;sphericalEnvMap:#emvmapImg;src:#kanOuterImg;"
-          animation__f="property: material.opacity; from:0; to:1; dur:1; startEvents:in;"
-          animation__f2="property: material.opacity; from:0.9; to:0; dur:1000; startEvents:out;">
-        </a-entity>
-      </a-entity>
-
-      <a-plane id="tapBtn0" position="0 0.6 0.5" scale="0.6 0.6 0.6" rotation="-30 0 0"
-        material="src:#tapImg;alphaTest:0.2;side:double;shader:flat;opacity:0.7;">
-      </a-plane>
-
-      <a-entity id="sabaBlock0">
-        <a-entity visible="false" gltf-model="#sabaModel0" rotation="0 -90 0" animation-mixer="timeScale:0;"></a-entity>
-        <a-entity visible="false" gltf-model="#sabaModel1" rotation="0 -90 0" animation-mixer="timeScale:0;"></a-entity>
-      </a-entity>
-
-      <a-entity id="kan0" obj-model="obj:#kanModel"
-        material="opacity:0;roughness:0;metalness:1;color:#FEEF7E;sphericalEnvMap:#emvmapImg;src:#kanAOImg;"
-        animation__f="property: material.opacity; from:0; to:1; dur:1; startEvents:in;">
-      </a-entity>
-
-      <a-plane id="restartBtn0" position="0 0 0.7" scale="0 0 0" rotation="-40 0 0"
-        material="src:#restartImg;alphaTest:0.2;side:double;shader:flat;opacity:0;"
-        animation__f="property: material.opacity; from:0; to:1; dur:1000; startEvents:in;">
-      </a-plane>
-
-    </a-entity>
+  <a-entity mindar-image-target="targetIndex: 0" id="ar-target">
+    <a-box id="ar-cube"
+      position="0 0 0.08" width="0.16" height="0.16" depth="0.16"
+      color="#2563AA" opacity="0.92" roughness="0.3" metalness="0.1">
+    </a-box>
+    <a-entity geometry="primitive:cylinder;radius:0.003;height:0.06;"
+      material="color:#ef4444;" position="0.08 0 0.08" rotation="0 0 90"></a-entity>
+    <a-entity geometry="primitive:cylinder;radius:0.003;height:0.06;"
+      material="color:#22c55e;" position="0 0.08 0.08"></a-entity>
+    <a-plane position="0 0 0.001" width="0.16" height="0.16"
+      color="#f59e0b" opacity="0.10" rotation="-90 0 0" side="double"></a-plane>
   </a-entity>
 
+  <a-light type="ambient" color="#fff" intensity="0.7"></a-light>
+  <a-light type="directional" color="#fff" intensity="0.8" position="1 2 1"></a-light>
 </a-scene>
 
-<div id="tapOverlay"></div>
-<div id="capType"></div>
 
-<div id="capturePreview" style="display:none;">
-  <img id="captureImg" src="" style="max-width:100%;max-height:80vh;">
-  <video id="captureVideo" src="" style="max-width:100%;max-height:80vh;" controls></video>
-  <div id="captureActions">
-    <button id="captureSave">保存</button>
-    <button id="captureClose">閉じる</button>
+<!-- ローディングオーバーレイ -->
+<div id="loading-overlay" style="position:fixed;inset:0;background:#000;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;">
+  <div style="width:40px;height:40px;border:3px solid rgba(255,255,255,.2);border-top-color:#f59e0b;border-radius:50%;animation:spin .7s linear infinite;"></div>
+  <p id="loading-msg" style="font-family:sans-serif;font-size:14px;color:rgba(255,255,255,.7);">targets.mind を読み込み中…</p>
+</div>
+
+<!-- HUD -->
+<div id="hud">
+  <div id="status-bar">
+    <div id="status-dot" class="searching"></div>
+    <span id="status-text">初期化中…</span>
+  </div>
+  <div id="scan-guide">
+    <div class="scan-frame"><span></span><div class="scan-line"></div></div>
+    <div id="guide-text">缶の蓋を枠内に<br>おさめてください</div>
+  </div>
+  <div>
+    <div id="info-panel">
+      <h1>PoC 精度メトリクス — MindAR</h1>
+      <div class="metrics-grid">
+        <div class="metric" id="m-detect"><div class="val" id="v-detect">—</div><div class="lbl">検出回数</div></div>
+        <div class="metric" id="m-lost"><div class="val" id="v-lost">0</div><div class="lbl">ロスト回数</div></div>
+        <div class="metric" id="m-time"><div class="val" id="v-time">—</div><div class="lbl">追従時間(s)</div></div>
+      </div>
+      <div id="jitter-bar-wrap">
+        <span id="jitter-label">ジッター強度</span>
+        <div id="jitter-bar-bg"><div id="jitter-bar"></div></div>
+        <span id="jitter-val">0.000</span>
+      </div>
+    </div>
+    <div id="tune-toggle" onclick="toggleTune()">⚙</div>
   </div>
 </div>
 
-<script src="./jscss/ar.js"></script>
+<!-- チューニングパネル -->
+<div id="tune-panel">
+  <h2>パラメーター調整</h2>
+  <p class="note">
+    <span style="color:#22c55e;">■</span> リアルタイム反映 &nbsp;／&nbsp;
+    <span style="color:#f59e0b;">■</span> 離したら自動再起動（1〜2秒）
+  </p>
+  <div style="background:rgba(255,255,255,.05);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:rgba(255,255,255,.5);line-height:1.8;">
+    <b style="color:rgba(255,255,255,.7);">調整のコツ</b><br>
+    ロスト回数が多い → filterMinCF を小さくする<br>
+    ジッターが強い　→ filterBeta を小さくする<br>
+    両方気になる　　→ まず filterBeta から下げる<br>
+    追従が遅れる　　→ lerp を大きくする（0.5〜1.0）
+  </div>
+  <div class="tune-row">
+    <div class="tune-head">
+      <span class="tune-name">filterMinCF <span class="restart-badge">再起動</span></span>
+      <span class="tune-desc">小さい → ロストしにくい・今: ロスト多発中</span>
+    </div>
+    <div class="tune-val-row">
+      <input type="range" id="r-mincf" min="0.0001" max="0.01" step="0.0001" value="0.001"
+        oninput="document.getElementById('tv-mincf').textContent=parseFloat(this.value).toFixed(4)"
+        onchange="applyFilter()">
+      <span class="tv" id="tv-mincf">0.0010</span>
+    </div>
+  </div>
+  <div class="tune-row">
+    <div class="tune-head">
+      <span class="tune-name">filterBeta <span class="restart-badge">再起動</span></span>
+      <span class="tune-desc">小 → ジッターが減る</span>
+    </div>
+    <div class="tune-val-row">
+      <input type="range" id="r-beta" min="0.001" max="0.1" step="0.001" value="0.01"
+        oninput="document.getElementById('tv-beta').textContent=parseFloat(this.value).toFixed(3)"
+        onchange="applyFilter()">
+      <span class="tv" id="tv-beta">0.010</span>
+    </div>
+  </div>
+  <div class="tune-row">
+    <div class="tune-head">
+      <span class="tune-name">lerp 補間係数 <span class="lerp-badge">リアルタイム</span></span>
+      <span class="tune-desc">小 → なめらか（追従が遅れる）</span>
+    </div>
+    <div class="tune-val-row">
+      <input type="range" id="r-lerp" min="0.05" max="1.0" step="0.05" value="0.3"
+        oninput="lerpFactor=+this.value; document.getElementById('tv-lerp').textContent=parseFloat(this.value).toFixed(2)">
+      <span class="tv" id="tv-lerp">0.30</span>
+    </div>
+  </div>
+  <button id="tune-close" onclick="toggleTune()">閉じる</button>
+</div>
+
+<!-- 再起動オーバーレイ -->
+<div id="restart-overlay">
+  <div class="spinner"></div>
+  <p>パラメーターを適用中…</p>
+  <div id="restart-params"></div>
+</div>
+
+<!-- デバッグ -->
+<button id="debug-toggle" onclick="document.getElementById('debug-panel').classList.toggle('show')">DEBUG</button>
+<div id="debug-panel"><div class="dlog info">--- デバッグログ ---</div></div>
+
+<script>
+// ── デバッグ ──
+const panel = document.getElementById('debug-panel');
+function dlog(msg, type) {
+  type = type || 'info';
+  const d = document.createElement('div');
+  d.className = 'dlog ' + type;
+  d.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+  panel.appendChild(d);
+  panel.scrollTop = panel.scrollHeight;
+  // panel.classList.add('show');  // デフォルト非表示
+}
+['log','warn','error'].forEach(function(fn) {
+  var orig = console[fn].bind(console);
+  console[fn] = function() {
+    orig.apply(console, arguments);
+    var type = fn === 'error' ? 'err' : fn === 'warn' ? 'warn' : 'info';
+    dlog(Array.from(arguments).map(function(a) {
+      try { return typeof a === 'object' ? JSON.stringify(a) : String(a); } catch(e) { return String(a); }
+    }).join(' '), type);
+  };
+});
+window.addEventListener('error', function(e) {
+  dlog('ERROR: ' + e.message + ' (:' + e.lineno + ')', 'err');
+});
+window.addEventListener('unhandledrejection', function(e) {
+  dlog('PROMISE ERR: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason)), 'err');
+});
+
+dlog('ページ読み込み開始');
+dlog('Protocol: ' + location.protocol);
+
+// カメラアクセス確認
+navigator.mediaDevices.getUserMedia({ video: true })
+  .then(function(s) { dlog('カメラアクセス: 成功'); s.getTracks().forEach(function(t){t.stop();}); })
+  .catch(function(e) { dlog('カメラアクセス失敗: ' + e.name, 'err'); });
+
+// ── 状態 ──
+var lerpFactor = 0.3;
+var detectCount = 0, lostCount = 0;
+var trackStart = null, prevPos = null;
+var jitterSamples = [];
+var restartTimer = null;
+
+// ── A-Frame / MindAR イベント ──
+document.addEventListener('DOMContentLoaded', function() {
+  dlog('DOMContentLoaded');
+  var loadingMsg = document.getElementById('loading-msg');
+  if (loadingMsg) {
+    setTimeout(function(){ if(loadingMsg) loadingMsg.textContent = 'カメラを初期化中…'; }, 2000);
+    setTimeout(function(){ if(loadingMsg) loadingMsg.textContent = 'マーカーデータを処理中…'; }, 4000);
+    setTimeout(function(){ if(loadingMsg) loadingMsg.textContent = 'もう少しお待ちください…'; }, 7000);
+  }
+  var sceneEl = document.querySelector('a-scene');
+  if (!sceneEl) { dlog('a-scene が見つかりません', 'err'); return; }
+
+  sceneEl.addEventListener('loaded', function() {
+    dlog('a-scene loaded');
+    var lo = document.getElementById('loading-overlay');
+    if (lo) lo.style.display = 'none';
+    setStatus('searching', '缶の蓋をカメラに向けてください');
+    var target = document.getElementById('ar-target');
+    if (!target) { dlog('ar-target が見つかりません', 'err'); return; }
+    dlog('ar-target 取得成功');
+
+    target.addEventListener('targetFound', function() {
+      dlog('targetFound!');
+      detectCount++;
+      trackStart = performance.now();
+      prevPos = null; jitterSamples = [];
+      setStatus('found', 'マーカー認識中 ✓');
+      document.getElementById('scan-guide').classList.add('hidden');
+      document.getElementById('v-detect').textContent = detectCount;
+      document.getElementById('m-detect').classList.add('active');
+    });
+
+    target.addEventListener('targetLost', function() {
+      dlog('targetLost');
+      lostCount++;
+      trackStart = null;
+      setStatus('lost', 'マーカーを見失いました');
+      document.getElementById('scan-guide').classList.remove('hidden');
+      document.getElementById('v-lost').textContent = lostCount;
+      document.getElementById('m-lost').classList.add('warn');
+      setJitter(0);
+    });
+
+    // lerp ループ
+    var sp = new THREE.Vector3();
+    var sq = new THREE.Quaternion();
+    var init = false;
+    function loop() {
+      requestAnimationFrame(loop);
+      if (!target.object3D.visible) return;
+      var obj = target.object3D;
+      if (!init) { sp.copy(obj.position); sq.copy(obj.quaternion); init = true; return; }
+      if (prevPos) {
+        var dx = obj.position.x - prevPos.x;
+        var dy = obj.position.y - prevPos.y;
+        var dz = obj.position.z - prevPos.z;
+        var j = Math.sqrt(dx*dx + dy*dy + dz*dz);
+        jitterSamples.push(j);
+        if (jitterSamples.length > 30) jitterSamples.shift();
+        setJitter(jitterSamples.reduce(function(a,b){return a+b;},0) / jitterSamples.length);
+      }
+      prevPos = obj.position.clone();
+      var lf = parseFloat(document.getElementById('r-lerp').value);
+      sp.lerp(obj.position, lf);
+      sq.slerp(obj.quaternion, lf);
+      obj.position.copy(sp);
+      obj.quaternion.copy(sq);
+      if (trackStart) {
+        document.getElementById('v-time').textContent = ((performance.now()-trackStart)/1000).toFixed(1);
+        document.getElementById('m-time').classList.add('active');
+      }
+    }
+    loop();
+  });
+
+  sceneEl.addEventListener('arReady', function() { dlog('arReady'); });
+  sceneEl.addEventListener('arError', function(e) { dlog('arError: ' + JSON.stringify(e.detail), 'err'); });
+});
+
+// ── フィルターパラメーター変更時：mindar-image コンポーネントを更新 ──
+function applyFilter() {
+  clearTimeout(restartTimer);
+  restartTimer = setTimeout(function() {
+    var minCF = parseFloat(document.getElementById('r-mincf').value);
+    var beta  = parseFloat(document.getElementById('r-beta').value);
+    document.getElementById('restart-params').textContent =
+      'filterMinCF: ' + minCF.toFixed(4) + '  /  filterBeta: ' + beta.toFixed(3);
+    document.getElementById('restart-overlay').classList.add('show');
+    dlog('パラメーター変更: filterMinCF=' + minCF + ' filterBeta=' + beta);
+
+    var sceneEl = document.querySelector('a-scene');
+    var sys = sceneEl && sceneEl.systems && sceneEl.systems['mindar-image-system'];
+    if (sys) {
+      sys.filterMinCF = minCF;
+      sys.filterBeta  = beta;
+      dlog('パラメーター適用完了（再起動不要）');
+    } else {
+      dlog('mindar-image-system が見つかりません', 'warn');
+    }
+    setTimeout(function() {
+      document.getElementById('restart-overlay').classList.remove('show');
+    }, 800);
+  }, 300);
+}
+
+// ── UI ヘルパー ──
+function setStatus(cls, text) {
+  document.getElementById('status-dot').className = cls;
+  document.getElementById('status-text').textContent = text;
+}
+function setJitter(v) {
+  var pct = Math.min(v * 5000, 100);
+  var bar = document.getElementById('jitter-bar');
+  bar.style.width = pct + '%';
+  bar.style.background = pct < 30 ? '#22c55e' : pct < 65 ? '#f59e0b' : '#ef4444';
+  document.getElementById('jitter-val').textContent = v.toFixed(4);
+}
+function toggleTune() {
+  document.getElementById('tune-panel').classList.toggle('open');
+}
+</script>
 </body>
 </html>
